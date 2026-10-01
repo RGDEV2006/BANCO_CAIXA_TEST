@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Registro - Sua Loteria</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="container">
+<h2 style="margin-bottom:12px;color:#1F4E78">Registro</h2>
+
+<div class="toolbar">
+<button class="btn btn-primary" onclick="openRegistroModal()">+ Adicionar lançamento</button>
+<button class="btn" onclick="salvarTudo()">Salvar</button>
+<button class="btn" onclick="atualizarPremios()">Atualizar prêmios (API Caixa)</button>
+<button class="btn" onclick="exportarRegistro()">Exportar CSV</button>
+<label class="btn" style="cursor:pointer"><input type="file" id="importCsv" style="display:none" accept=".csv" onchange="importarRegistro(event)">Importar CSV</label>
+<button class="btn" onclick="restaurar()">Restaurar dados originais</button>
+</div>
+<div class="card" style="margin-bottom:12px">
+<div class="toolbar">
+<label>Loja<select id="fLoja" class="input"><option value="">Todas as lojas</option></select></label>
+<label>De<input id="fDe" class="input" type="date"></label>
+<label>Até<input id="fAte" class="input" type="date"></label>
+<button class="btn" onclick="limparFiltros()">Limpar</button>
+<button class="btn" onclick="excluirSelecionados()">Excluir selecionados</button>
+</div>
+<div class="table-wrap"><table id="tblRegistro"><thead><tr><th><input type="checkbox" id="chkAll" onchange="toggleAll(this)"></th><th>Data</th><th>Origem/Fornecedor</th><th>Bolão</th><th>Concurso</th><th>Data Sorteio</th><th>Loja</th><th>Prêmio Est. <span title="Pode ser manual ou via lupa na API oficial Caixa: servicebus2.caixa.gov.br">ⓘ</span></th><th>Enviadas</th><th>Sobradas</th><th>Marketplace</th><th>Vendidas</th><th>% Vendido</th><th>Esgotou?</th><th>Prejuízo</th><th>Ações</th></tr></thead><tbody></tbody></table></div>
+</div>
+
+<div id="regModal" class="modal-backdrop"><div class="modal" style="max-width:720px"><h3 id="regModalTitle">Adicionar lançamento</h3>
+<div class="form-grid">
+<div class="form-grid form-grid-2"><label>Data (DD/MM/AAAA)<input id="rData" class="input" placeholder="10/09/2026"></label><label>Loja<select id="rLoja" class="input"></select></label></div>
+<div class="form-grid form-grid-2"><label>Origem/Fornecedor<select id="rOrigem" class="input"></select></label><label>Bolão<select id="rBolao" class="input"></select></label></div>
+<div class="form-grid form-grid-2"><label>Concurso<div style="display:flex;gap:6px"><input id="rConcurso" class="input" placeholder="3782"><button class="btn" type="button" onclick="buscarConcursoModal()" title="Buscar na API oficial da Caixa">🔍</button></div></label><label>Data Sorteio<input id="rDataSorteio" class="input" placeholder="10/09/2026"></label></div>
+<label>Prêmio Estimado<input id="rPremio" class="input" type="number" step="0.01" placeholder="1500000"></label>
+<div class="form-grid form-grid-2"><label>Enviadas<input id="rEnviadas" class="input" type="number"></label><label>Sobradas<input id="rSobradas" class="input" type="number"></label></div>
+<div class="form-grid form-grid-2"><label>Marketplace<input id="rMarket" class="input" type="number"></label><label>Vendidas<input id="rVendidas" class="input" type="number"></label></div>
+<div class="toolbar"><button class="btn btn-primary" onclick="saveRegistro()">Salvar</button><button class="btn" onclick="closeRegistroModal()">Cancelar</button></div>
+</div></div></div>
+
+</div>
+<div id="modalRoot"></div>
+<script src="js/app.js"></script>
+<script>
+const SESSION=requireAuth(); if(SESSION){ renderTopbar('registro'); }
+
+let {boloes,registros}=getData();
+let editingReg=null;
+let selectedIds=new Set();
+
+function fillLojaSelects(){
+  const opts=['<option value="">—</option>'].concat(LOJAS.map(l=>`<option value="${l}">${l}</option>`)).join('');
+  document.getElementById('fLoja').innerHTML='<option value="">Todas as lojas</option>'+LOJAS.map(l=>`<option value="${l}">${l}</option>`).join('');
+  const rLoja=document.getElementById('rLoja'); const rOrig=document.getElementById('rOrigem');
+  if(rLoja) rLoja.innerHTML=opts; if(rOrig) rOrig.innerHTML=opts;
+  const bolaoOpts=boloes.map(b=>`<option value="${b.id}">${b.modalidade} - ${fmtBRL(b.venda_cota)}</option>`).join('');
+  const rBol=document.getElementById('rBolao'); if(rBol) rBol.innerHTML=bolaoOpts;
+}
+fillLojaSelects();
+
+function filteredRegistros(){
+  const fLoja=document.getElementById('fLoja').value;
+  const fDe=document.getElementById('fDe').value;
+  const fAte=document.getElementById('fAte').value;
+  return registros.filter(r=>{
+    if(fLoja && r.loja!==fLoja) return false;
+    if(fDe){ const d=parseDateBR(r.data); const de=new Date(fDe); if(d && d < de) return false; }
+    if(fAte){ const d=parseDateBR(r.data); const ate=new Date(fAte); if(d && d > ate) return false; }
+    return true;
+  });
+}
+
+function renderRegistro(){
+  const list=filteredRegistros();
+  const tb=document.querySelector('#tblRegistro tbody');
+  tb.innerHTML=list.map(r=>{
+    const b=boloes.find(x=>x.id===r.bolao_id);
+    const perc=r.enviadas? Math.round((r.vendidas||0)/r.enviadas*100):0;
+    const esgotou= perc>=100? 'Sim':'Não';
+    const prej=calcPrejuizo(r,b);
+    const prejHtml= prej>0? `<span class="text-red">${fmtBRL(prej)}</span>`:`—`;
+    return `<tr>
+      <td><input type="checkbox" ${selectedIds.has(r.id)?'checked':''} onchange="toggleSel('${r.id}',this.checked)"></td>
+      <td><input class="input" style="width:110px" value="${r.data||''}" onchange="updateField('${r.id}','data',this.value)"></td>
+      <td><select class="input" style="width:150px" onchange="updateField('${r.id}','origem_fornecedor',this.value)"><option value="">—</option>${LOJAS.map(l=>`<option ${r.origem_fornecedor===l?'selected':''} value="${l}">${l}</option>`).join('')}</select></td>
+      <td><select class="input" style="width:150px" onchange="updateField('${r.id}','bolao_id',this.value)">${boloes.map(bb=>`<option ${r.bolao_id===bb.id?'selected':''} value="${bb.id}">${bb.modalidade}</option>`).join('')}</select></td>
+      <td><div style="display:flex;gap:4px"><input class="input" style="width:70px" value="${r.concurso||''}" onchange="updateField('${r.id}','concurso',this.value)"><button class="btn" style="padding:4px 6px" onclick="buscarConcurso('${r.id}')" title="Buscar na API Caixa">🔍</button></div></td>
+      <td><input class="input" style="width:110px" value="${r.data_sorteio||''}" onchange="updateField('${r.id}','data_sorteio',this.value)"></td>
+      <td><select class="input" style="width:150px" onchange="updateField('${r.id}','loja',this.value)"><option value="">—</option>${LOJAS.map(l=>`<option ${r.loja===l?'selected':''} value="${l}">${l}</option>`).join('')}</select></td>
+      <td><input class="input" style="width:120px" type="number" step="0.01" value="${r.premio_estimado||''}" onchange="updateField('${r.id}','premio_estimado',Number(this.value))"></td>
+      <td><input class="input" style="width:70px" type="number" value="${r.enviadas||0}" onchange="updateField('${r.id}','enviadas',Number(this.value))"></td>
+      <td><input class="input" style="width:70px" type="number" value="${r.sobradas||0}" onchange="updateField('${r.id}','sobradas',Number(this.value))"></td>
+      <td><input class="input" style="width:70px" type="number" value="${r.marketplace||0}" onchange="updateField('${r.id}','marketplace',Number(this.value))"></td>
+      <td><input class="input" style="width:70px" type="number" value="${r.vendidas||0}" onchange="updateField('${r.id}','vendidas',Number(this.value))"></td>
+      <td>${perc}%</td>
+      <td>${esgotou}</td>
+      <td>${prejHtml}</td>
+      <td><button class="btn" onclick="editRegistro('${r.id}')">Editar</button> <button class="btn" onclick="delRegistro('${r.id}')">X</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function updateField(id,field,val){
+  const r=registros.find(x=>x.id===id); if(!r) return;
+  r[field]=val;
+  if(['enviadas','sobradas','marketplace'].includes(field)){
+    const env=r.enviadas||0; const sob=r.sobradas||0; const mk=r.marketplace||0;
+    r.vendidas=Math.max(0,env-sob-mk);
+  }
+  saveData({registros}); renderRegistro();
+}
+function toggleSel(id,checked){ if(checked) selectedIds.add(id); else selectedIds.delete(id); }
+function toggleAll(el){ const list=filteredRegistros(); if(el.checked){ list.forEach(r=>selectedIds.add(r.id)) } else { selectedIds.clear() } renderRegistro(); }
+function excluirSelecionados(){ if(selectedIds.size===0){toast('Nenhum selecionado');return} if(!confirm(`Excluir ${selectedIds.size} registros?`))return; registros=registros.filter(r=>!selectedIds.has(r.id)); saveData({registros}); selectedIds.clear(); renderRegistro(); toast('Excluídos');}
+function limparFiltros(){ document.getElementById('fLoja').value=''; document.getElementById('fDe').value=''; document.getElementById('fAte').value=''; renderRegistro(); }
+document.getElementById('fLoja').addEventListener('change',renderRegistro);
+document.getElementById('fDe').addEventListener('change',renderRegistro);
+document.getElementById('fAte').addEventListener('change',renderRegistro);
+
+function openRegistroModal(id=null){
+  editingReg=id? registros.find(x=>x.id===id):null;
+  document.getElementById('regModalTitle').textContent=editingReg?'Editar lançamento':'Adicionar lançamento';
+  document.getElementById('rData').value=editingReg? editingReg.data:todayStr();
+  document.getElementById('rLoja').value=editingReg? editingReg.loja:'';
+  document.getElementById('rOrigem').value=editingReg? editingReg.origem_fornecedor:'';
+  document.getElementById('rBolao').value=editingReg? editingReg.bolao_id:(boloes[0]?.id||'');
+  document.getElementById('rConcurso').value=editingReg? editingReg.concurso:'';
+  document.getElementById('rDataSorteio').value=editingReg? editingReg.data_sorteio:'';
+  document.getElementById('rPremio').value=editingReg? editingReg.premio_estimado:'';
+  document.getElementById('rEnviadas').value=editingReg? editingReg.enviadas:10;
+  document.getElementById('rSobradas').value=editingReg? editingReg.sobradas:0;
+  document.getElementById('rMarket').value=editingReg? editingReg.marketplace:0;
+  document.getElementById('rVendidas').value=editingReg? editingReg.vendidas:10;
+  document.getElementById('regModal').classList.add('open');
+}
+function closeRegistroModal(){document.getElementById('regModal').classList.remove('open')}
+function saveRegistro(){
+  const data={
+    data:document.getElementById('rData').value,
+    loja:document.getElementById('rLoja').value,
+    origem_fornecedor:document.getElementById('rOrigem').value,
+    bolao_id:document.getElementById('rBolao').value,
+    concurso:document.getElementById('rConcurso').value,
+    data_sorteio:document.getElementById('rDataSorteio').value,
+    premio_estimado:Number(document.getElementById('rPremio').value)||0,
+    enviadas:Number(document.getElementById('rEnviadas').value)||0,
+    sobradas:Number(document.getElementById('rSobradas').value)||0,
+    marketplace:Number(document.getElementById('rMarket').value)||0,
+    vendidas:Number(document.getElementById('rVendidas').value)||0
+  };
+  if(editingReg){Object.assign(editingReg,data)} else {data.id=uid(); registros.push(data)}
+  saveData({registros}); renderRegistro(); closeRegistroModal(); toast('Lançamento salvo');
+}
+function editRegistro(id){openRegistroModal(id)}
+function delRegistro(id){if(!confirm('Excluir?'))return; registros=registros.filter(x=>x.id!==id); saveData({registros}); renderRegistro(); toast('Excluído')}
+function salvarTudo(){saveData({registros}); toast(registros.length+' lançamento(s) salvos');}
+function exportarRegistro(){exportCSV(registros,'registros.csv')}
+function importarRegistro(e){
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader(); reader.onload=function(ev){
+    const lines=ev.target.result.split('\n').filter(l=>l.trim()); const header=lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
+    const newRegs=lines.slice(1).map(line=>{
+      const vals=line.split(',').map(v=>v.replace(/^"|"$/g,'').trim()); const obj={id:uid()}; header.forEach((h,i)=>{obj[h]=vals[i]}); return obj;
+    });
+    registros=registros.concat(newRegs); saveData({registros}); renderRegistro(); toast('Importado '+newRegs.length);
+  }; reader.readAsText(file);
+}
+function restaurar(){ if(!confirm('Restaurar dados originais? Isso apaga tudo.'))return; localStorage.removeItem('boloes'); localStorage.removeItem('registros'); const d=getData(); boloes=d.boloes; registros=d.registros; renderRegistro(); toast('Dados restaurados'); }
+
+// ===== API Caixa =====
+async function buscarConcurso(id){
+  const r=registros.find(x=>x.id===id); if(!r){toast('Registro não encontrado');return}
+  const b=boloes.find(x=>x.id===r.bolao_id); if(!b){toast('Bolão não encontrado');return}
+  if(!r.concurso){toast('Informe o concurso');return}
+  const btn=event?.target; if(btn){btn.textContent='⏳'; btn.disabled=true}
+  try{
+    const res=await fetchConcursoCaixa(b.modalidade, r.concurso);
+    r.data_sorteio=res.dataApuracao||r.data_sorteio;
+    r.premio_estimado=res.valorEstimado||r.premio_estimado;
+    // também atualiza bolão
+    if(res.dataApuracao) b.data_sorteio=res.dataApuracao;
+    if(res.valorEstimado) b.premio_estimado=res.valorEstimado;
+    saveData({boloes,registros});
+    renderRegistro();
+    toast(`Concurso ${r.concurso} atualizado: ${res.dataApuracao||''} ${res.valorEstimado? fmtBRL(res.valorEstimado):''}`);
+  }catch(e){
+    toast('Falha ao buscar concurso '+r.concurso+': '+e.message);
+  }finally{
+    if(btn){btn.textContent='🔍'; btn.disabled=false}
+  }
+}
+async function buscarConcursoModal(){
+  const concurso=document.getElementById('rConcurso').value; const bolaoId=document.getElementById('rBolao').value;
+  const b=boloes.find(x=>x.id===bolaoId); if(!concurso||!b){toast('Informe concurso e bolão');return}
+  try{
+    const res=await fetchConcursoCaixa(b.modalidade, concurso);
+    if(res.dataApuracao) document.getElementById('rDataSorteio').value=res.dataApuracao;
+    if(res.valorEstimado) document.getElementById('rPremio').value=res.valorEstimado;
+    toast(`Concurso ${concurso} encontrado`);
+  }catch(e){toast('Falha: '+e.message)}
+}
+async function atualizarPremios(){
+  const list=registros.filter(r=>r.concurso);
+  if(list.length===0){toast('Nenhum concurso preenchido');return}
+  let ok=0;
+  for(let i=0;i<list.length;i++){
+    const r=list[i]; const b=boloes.find(x=>x.id===r.bolao_id); if(!b) continue;
+    toast(`Atualizando ${i+1}/${list.length}...`);
+    try{
+      const res=await fetchConcursoCaixa(b.modalidade, r.concurso);
+      if(res.dataApuracao) r.data_sorteio=res.dataApuracao;
+      if(res.valorEstimado) r.premio_estimado=res.valorEstimado;
+      ok++;
+      await new Promise(r=>setTimeout(r,300));
+    }catch(e){console.warn('Falha',r.concurso,e.message)}
+  }
+  saveData({boloes,registros}); renderRegistro(); toast(`${ok} prêmios atualizados`);
+}
+
+renderRegistro();
+
+</script>
+</body>
+</html>

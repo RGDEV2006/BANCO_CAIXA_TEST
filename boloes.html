@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bolões - Sua Loteria</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="container">
+<h2 style="margin-bottom:12px;color:#1F4E78">Bolões</h2>
+
+<div class="toolbar"><button class="btn btn-primary" onclick="openBolaoModal()">+ Adicionar bolão</button><button class="btn" onclick="exportBoloes()">Exportar CSV</button></div>
+<div class="card"><div class="table-wrap"><table id="tblBoloes"><thead><tr><th>Modalidade</th><th>Total Cotas</th><th>Custo/Cota</th><th>Venda/Cota</th><th>Status</th><th>Ações</th></tr></thead><tbody></tbody></table></div></div>
+<div id="bolaoModal" class="modal-backdrop"><div class="modal"><h3 id="bolaoModalTitle">Adicionar bolão</h3><div class="form-grid">
+<label>Modalidade<select id="bModalidade" class="input"><option>LOTOFACIL</option><option>MEGASENA</option><option>QUINA</option><option>LOTOMANIA</option><option>TIMEMANIA</option><option>DUPLASENA</option><option>DIADESORTE</option><option>SUPERSETE</option><option>LOTECA</option><option>FEDERAL</option></select></label>
+<div class="form-grid form-grid-2"><label>Total Cotas<input id="bCotas" class="input" type="number"></label><label>Status<select id="bStatus" class="input"><option>Ativo</option><option>Encerrado</option></select></label></div>
+<div class="form-grid form-grid-2"><label>Custo/Cota<input id="bCusto" class="input" type="number" step="0.01"></label><label>Venda/Cota<input id="bVenda" class="input" type="number" step="0.01"></label></div>
+<div class="toolbar"><button class="btn btn-primary" onclick="saveBolao()">Salvar</button><button class="btn" onclick="closeBolaoModal()">Cancelar</button></div>
+</div></div></div>
+
+</div>
+<div id="modalRoot"></div>
+<script src="js/app.js"></script>
+<script>
+const SESSION=requireAuth(); if(SESSION){ renderTopbar('boloes'); }
+
+let {boloes}=getData();
+let editingBolao=null;
+function renderBoloes(){
+  const tb=document.querySelector('#tblBoloes tbody');
+  tb.innerHTML=boloes.map(b=>`<tr><td>${b.modalidade}</td><td>${b.total_cotas}</td><td>${fmtBRL(b.custo_cota)}</td><td>${fmtBRL(b.venda_cota)}</td><td><span class="badge ${b.status==='Ativo'?'badge-ativo':'badge-encerrado'}">${b.status}</span></td><td><button class="btn" onclick="editBolao('${b.id}')">Editar</button> <button class="btn" onclick="delBolao('${b.id}')">Excluir</button></td></tr>`).join('');
+}
+function openBolaoModal(id=null){
+  editingBolao=id? boloes.find(x=>x.id===id):null;
+  document.getElementById('bolaoModalTitle').textContent=editingBolao?'Editar bolão':'Adicionar bolão';
+  document.getElementById('bModalidade').value=editingBolao? editingBolao.modalidade:'LOTOFACIL';
+  document.getElementById('bCotas').value=editingBolao? editingBolao.total_cotas:10;
+  document.getElementById('bStatus').value=editingBolao? editingBolao.status:'Ativo';
+  document.getElementById('bCusto').value=editingBolao? editingBolao.custo_cota:10;
+  document.getElementById('bVenda').value=editingBolao? editingBolao.venda_cota:20;
+  document.getElementById('bolaoModal').classList.add('open');
+}
+function closeBolaoModal(){document.getElementById('bolaoModal').classList.remove('open');}
+function saveBolao(){
+  const data={modalidade:document.getElementById('bModalidade').value,total_cotas:Number(document.getElementById('bCotas').value),custo_cota:Number(document.getElementById('bCusto').value),venda_cota:Number(document.getElementById('bVenda').value),status:document.getElementById('bStatus').value,concurso:"",data_sorteio:"",premio_estimado:null};
+  if(editingBolao){Object.assign(editingBolao,data)} else {data.id=uid(); boloes.push(data)}
+  saveData({boloes}); renderBoloes(); closeBolaoModal(); toast('Bolão salvo');
+}
+function editBolao(id){openBolaoModal(id)}
+function delBolao(id){if(!confirm('Excluir bolão?'))return; boloes=boloes.filter(x=>x.id!==id); saveData({boloes}); renderBoloes(); toast('Bolão excluído')}
+function exportBoloes(){exportCSV(boloes,'boloes.csv')}
+renderBoloes();
+
+</script>
+</body>
+</html>

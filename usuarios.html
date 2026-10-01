@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Usuários - Sua Loteria</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="container">
+<h2 style="margin-bottom:12px;color:#1F4E78">Usuários</h2>
+
+<div class="toolbar"><button class="btn btn-primary" onclick="openUserModal()">+ Adicionar usuário</button><button class="btn" onclick="exportUsuarios()">Exportar CSV</button></div>
+<div class="card"><div class="table-wrap"><table id="tblUsers"><thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th>Status</th><th>Permissões</th><th>Último acesso</th><th>Ações</th></tr></thead><tbody></tbody></table></div></div>
+
+<div id="userModal" class="modal-backdrop"><div class="modal"><h3 id="userModalTitle">Adicionar usuário</h3><div class="form-grid">
+<label>Nome<input id="uNome" class="input"></label><label>Login<input id="uLogin" class="input"></label>
+<label>Senha<input id="uSenha" class="input" type="password"></label><label>Confirmar senha<input id="uSenha2" class="input" type="password"></label>
+<label>Perfil<select id="uPerfil" class="input"><option>Administrador</option><option>Gerente</option></select></label>
+<div class="toolbar"><button class="btn btn-primary" onclick="saveUser()">Salvar</button><button class="btn" onclick="closeUserModal()">Cancelar</button></div>
+</div></div></div>
+
+<div id="editModal" class="modal-backdrop"><div class="modal"><h3>Editar usuário</h3><div class="form-grid">
+<label>Nome<input id="eNome" class="input"></label><label>Perfil<select id="ePerfil" class="input"><option>Administrador</option><option>Gerente</option></select></label><label>Status<select id="eStatus" class="input"><option>Ativo</option><option>Inativo</option></select></label>
+<div class="toolbar"><button class="btn btn-primary" onclick="saveEdit()">Salvar</button><button class="btn" onclick="closeEditModal()">Cancelar</button></div>
+</div></div></div>
+
+<div id="passModal" class="modal-backdrop"><div class="modal"><h3>Redefinir senha</h3><div class="form-grid">
+<label>Nova senha<input id="pSenha" class="input" type="password"></label><label>Confirmar<input id="pSenha2" class="input" type="password"></label>
+<div class="toolbar"><button class="btn btn-primary" onclick="savePass()">Salvar</button><button class="btn" onclick="closePassModal()">Cancelar</button></div>
+</div></div></div>
+
+<div id="permModal" class="modal-backdrop"><div class="modal" style="max-width:600px"><h3 id="permTitle">Permissões</h3><div class="form-grid" id="permChecks" style="grid-template-columns:1fr 1fr"></div><div class="toolbar" style="margin-top:10px"><button class="btn btn-primary" onclick="savePerm()">Salvar</button><button class="btn" onclick="closePermModal()">Cancelar</button></div></div></div>
+
+</div>
+<div id="modalRoot"></div>
+<script src="js/app.js"></script>
+<script>
+const SESSION=requireAuth(); if(SESSION){ renderTopbar('usuarios'); }
+
+let {usuarios}=getData();
+let editing=null, editingPass=null, editingPerm=null;
+const PERMS=[['resumo','Resumo'],['boloes','Bolões'],['registro','Registro'],['porBolao','Por Bolão'],['consulta','Consulta'],['bancoDados','Banco de Dados'],['usuarios','Usuários (admin)'],['exportar','Exportar CSV'],['importar','Importar dados'],['atualizarPremios','Atualizar prêmios (API)']];
+
+function renderUsers(){
+  const tb=document.querySelector('#tblUsers tbody');
+  tb.innerHTML=usuarios.map(u=>{
+    const count=Object.values(u.permissoes||{}).filter(Boolean).length;
+    return `<tr><td>${u.nome}</td><td>${u.login}</td><td><span class="badge ${u.perfil==='Administrador'?'badge-admin':'badge-gerente'}">${u.perfil}</span></td><td><span class="badge ${u.status==='Ativo'?'badge-ativo':'badge-encerrado'}">${u.status}</span></td><td><span class="badge">${count}/10</span> <button class="btn" style="padding:2px 6px" onclick="openPerm('${u.id}')">🔑</button></td><td>${u.ultimo_acesso||'—'}</td><td><button class="btn" onclick="openEdit('${u.id}')">Editar</button> <button class="btn" onclick="openPass('${u.id}')">Senha</button> <button class="btn" onclick="toggleStatus('${u.id}')">${u.status==='Ativo'?'Desativar':'Ativar'}</button> <button class="btn" onclick="delUser('${u.id}')">Excluir</button></td></tr>`;
+  }).join('');
+}
+function openUserModal(){editing=null; document.getElementById('userModalTitle').textContent='Adicionar usuário'; document.getElementById('uNome').value=''; document.getElementById('uLogin').value=''; document.getElementById('uSenha').value=''; document.getElementById('uSenha2').value=''; document.getElementById('uPerfil').value='Gerente'; document.getElementById('userModal').classList.add('open')}
+function closeUserModal(){document.getElementById('userModal').classList.remove('open')}
+function saveUser(){
+  const nome=document.getElementById('uNome').value.trim(); const login=document.getElementById('uLogin').value.trim(); const senha=document.getElementById('uSenha').value; const senha2=document.getElementById('uSenha2').value; const perfil=document.getElementById('uPerfil').value;
+  if(!nome||!login||!senha){toast('Preencha todos os campos');return}
+  if(senha!==senha2){toast('Senhas não conferem');return}
+  if(senha.length<6){toast('Senha mínimo 6 caracteres');return}
+  if(usuarios.some(u=>u.login.toLowerCase()===login.toLowerCase())){toast('Login já existe');return}
+  const perms= perfil==='Administrador'? Object.fromEntries(PERMS.map(p=>[p[0],true])) : {resumo:true,boloes:true,registro:true,porBolao:true,consulta:true,bancoDados:false,usuarios:false,exportar:true,importar:false,atualizarPremios:true};
+  usuarios.push({id:uid(),nome,login,senha_hash:hash(senha),perfil,status:'Ativo',ultimo_acesso:'',permissoes:perms});
+  saveData({usuarios}); renderUsers(); closeUserModal(); toast('Usuário criado');
+}
+function openEdit(id){editing=usuarios.find(x=>x.id===id); if(!editing) return; document.getElementById('eNome').value=editing.nome; document.getElementById('ePerfil').value=editing.perfil; document.getElementById('eStatus').value=editing.status; document.getElementById('editModal').classList.add('open')}
+function closeEditModal(){document.getElementById('editModal').classList.remove('open')}
+function saveEdit(){
+  const s=getSession();
+  if(editing.id===s.id && document.getElementById('eStatus').value==='Inativo'){toast('Não pode desativar a si mesmo');return}
+  editing.nome=document.getElementById('eNome').value.trim(); editing.perfil=document.getElementById('ePerfil').value; editing.status=document.getElementById('eStatus').value;
+  if(editing.perfil==='Administrador') editing.permissoes=Object.fromEntries(PERMS.map(p=>[p[0],true]));
+  const ativosAdmin=usuarios.filter(u=>u.perfil==='Administrador'&&u.status==='Ativo'); if(ativosAdmin.length===0){toast('Deve haver pelo menos 1 Administrador ativo');return}
+  saveData({usuarios}); renderUsers(); closeEditModal(); toast('Usuário atualizado');
+}
+function openPass(id){editingPass=usuarios.find(x=>x.id===id); document.getElementById('pSenha').value=''; document.getElementById('pSenha2').value=''; document.getElementById('passModal').classList.add('open')}
+function closePassModal(){document.getElementById('passModal').classList.remove('open')}
+function savePass(){
+  const s1=document.getElementById('pSenha').value; const s2=document.getElementById('pSenha2').value;
+  if(s1!==s2){toast('Senhas não conferem');return} if(s1.length<6){toast('Mínimo 6 caracteres');return}
+  editingPass.senha_hash=hash(s1); saveData({usuarios}); closePassModal(); toast('Senha redefinida');
+}
+function toggleStatus(id){
+  const s=getSession(); const u=usuarios.find(x=>x.id===id);
+  if(u.id===s.id){toast('Não pode desativar a si mesmo');return}
+  if(u.status==='Ativo'){ if(!confirm('Desativar usuário?'))return; u.status='Inativo'; } else { u.status='Ativo'; }
+  const ativosAdmin=usuarios.filter(x=>x.perfil==='Administrador'&&x.status==='Ativo'); if(ativosAdmin.length===0){toast('Deve haver pelo menos 1 Administrador ativo'); u.status='Ativo'; return}
+  saveData({usuarios}); renderUsers(); toast('Status alterado');
+}
+function delUser(id){
+  const s=getSession(); if(id===s.id){toast('Não pode excluir a si mesmo');return}
+  if(!confirm('Excluir usuário?'))return; usuarios=usuarios.filter(x=>x.id!==id); saveData({usuarios}); renderUsers(); toast('Usuário excluído');
+}
+function openPerm(id){
+  editingPerm=usuarios.find(x=>x.id===id); document.getElementById('permTitle').textContent='Permissões - '+editingPerm.nome;
+  const container=document.getElementById('permChecks');
+  container.innerHTML=PERMS.map(([key,label])=>{
+    const checked=editingPerm.permissoes?.[key]? 'checked':'';
+    const disabled=editingPerm.perfil==='Administrador'? 'disabled':'';
+    return `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-perm="${key}" ${checked} ${disabled}> ${label}</label>`;
+  }).join('');
+  document.getElementById('permModal').classList.add('open');
+}
+function closePermModal(){document.getElementById('permModal').classList.remove('open')}
+function savePerm(){
+  if(editingPerm.perfil!=='Administrador'){
+    const checks=document.querySelectorAll('#permChecks input[data-perm]');
+    checks.forEach(ch=>{ editingPerm.permissoes[ch.dataset.perm]=ch.checked });
+  }
+  saveData({usuarios}); renderUsers(); closePermModal(); toast('Permissões salvas');
+}
+function exportUsuarios(){exportCSV(usuarios,'usuarios.csv')}
+renderUsers();
+
+</script>
+</body>
+</html>

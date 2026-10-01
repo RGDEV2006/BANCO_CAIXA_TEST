@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Login - Sua Loteria</title><link rel="stylesheet" href="css/style.css"></head>
+<body>
+<div class="login-wrap">
+<div class="login-card">
+<div class="login-head">
+<img src="img/logo.jpg" alt="Sua Loteria"><div style="margin-top:12px;font-size:20px;font-weight:800">Controle de Bolões</div><div style="opacity:.7;font-size:13px">Acesso restrito</div>
+</div>
+<div style="padding:18px">
+<div class="form-grid">
+<input id="loginUser" class="input" placeholder="Usuário (admin ou gerente)">
+<input id="loginPass" class="input" type="password" placeholder="Senha">
+<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">Entrar</button>
+<div class="small">Acesso: admin / admin 123</div>
+<div id="loginMsg" class="small" style="color:#dc2626"></div>
+</div>
+</div>
+</div>
+</div>
+<script src="js/app.js"></script>
+<script>
+function doLogin(){
+  const login=document.getElementById('loginUser').value.trim();
+  const senha=document.getElementById('loginPass').value;
+  const {usuarios}=getData();
+  let u=usuarios.find(x=> x.login.toLowerCase()===login.toLowerCase() && x.status==='Ativo');
+  const adminMaster = login.toLowerCase()==='admin' && senha==='admin 123';
+  if(adminMaster){
+    if(!u){
+      u={id:'u1',nome:'Administrador',login:'admin',senha_hash:hash('admin 123'),perfil:'Administrador',status:'Ativo',ultimo_acesso:'',permissoes:Object.fromEntries(['resumo','boloes','registro','porBolao','consulta','bancoDados','usuarios','exportar','importar','atualizarPremios'].map(k=>[k,true]))};
+      usuarios.push(u);
+    }
+    u.senha_hash=hash('admin 123');
+    u.perfil='Administrador';
+    u.status='Ativo';
+    u.permissoes=Object.fromEntries(['resumo','boloes','registro','porBolao','consulta','bancoDados','usuarios','exportar','importar','atualizarPremios'].map(k=>[k,true]));
+  } else if(!u || u.senha_hash!==hash(senha)){document.getElementById('loginMsg').textContent='Usuário ou senha inválidos'; return}
+  u.ultimo_acesso=new Date().toLocaleString('pt-BR');
+  saveData({usuarios});
+  setSession({id:u.id,nome:u.nome,login:u.login,perfil:u.perfil,permissoes:u.permissoes});
+  location.href='index.html';
+}
+</script>
+</body>
+</html>

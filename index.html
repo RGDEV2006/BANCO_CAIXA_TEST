@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Resumo - Sua Loteria</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="container">
+<h2 style="margin-bottom:12px;color:#1F4E78">Resumo</h2>
+
+<div class="grid grid-4" id="kpis"></div>
+<div style="height:12px"></div>
+<div class="card"><h3 style="margin-bottom:8px">Resumo por Loja</h3><div class="table-wrap"><table id="tblResumo"><thead><tr><th>Loja</th><th>Enviadas</th><th>Vendidas</th><th>% Vendido</th><th>Prejuízo</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div></div>
+
+</div>
+<div id="modalRoot"></div>
+<script src="js/app.js"></script>
+<script>
+const SESSION=requireAuth(); if(SESSION){ renderTopbar('resumo'); }
+
+let {boloes,registros}=getData();
+function renderResumo(){
+  const map={};
+  registros.forEach(r=>{
+    const b=boloes.find(x=>x.id===r.bolao_id);
+    const key=r.loja||'Sem loja';
+    if(!map[key]) map[key]={enviadas:0,vendidas:0,prejuizo:0};
+    map[key].enviadas+=r.enviadas||0;
+    map[key].vendidas+=r.vendidas||0;
+    map[key].prejuizo+=calcPrejuizo(r,b);
+  });
+  let totEnv=0,totVend=0,totPrej=0;
+  Object.values(map).forEach(v=>{totEnv+=v.enviadas; totVend+=v.vendidas; totPrej+=v.prejuizo});
+  const perc= totEnv? Math.round(totVend/totEnv*100):0;
+  document.getElementById('kpis').innerHTML=`
+    <div class="card"><div class="small">Total Enviado</div><div class="kpi">${totEnv}</div></div>
+    <div class="card"><div class="small">Total Vendido</div><div class="kpi">${totVend}</div></div>
+    <div class="card"><div class="small">% Vendido</div><div class="kpi">${perc}%</div><div class="progress"><div style="width:${perc}%"></div></div></div>
+    <div class="card"><div class="small">Prejuízo Total</div><div class="kpi ${totPrej>0?'text-red':''}">${fmtBRL(totPrej)}</div></div>
+  `;
+  const tbody=document.querySelector('#tblResumo tbody');
+  tbody.innerHTML=Object.entries(map).map(([loja,v])=>{
+    const p=v.enviadas? Math.round(v.vendidas/v.enviadas*100):0;
+    const prejHtml=v.prejuizo>0? `<span class="text-red">${fmtBRL(v.prejuizo)}</span>`:`${fmtBRL(0)}`;
+    return `<tr><td>${loja}</td><td>${v.enviadas}</td><td>${v.vendidas}</td><td>${p}%</td><td>${prejHtml}</td></tr>`;
+  }).join('');
+}
+renderResumo();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/script.js"></script>
+</body>
+</html>

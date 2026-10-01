@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Por Bolão - Sua Loteria</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="container">
+<h2 style="margin-bottom:12px;color:#1F4E78">Por Bolão</h2>
+
+<div class="toolbar"><label>Bolão<select id="fBolao" class="input"></select></label><button class="btn" onclick="exportPorBolao()">Exportar CSV</button></div>
+<div id="porBolaoContent"></div>
+
+</div>
+<div id="modalRoot"></div>
+<script src="js/app.js"></script>
+<script>
+const SESSION=requireAuth(); if(SESSION){ renderTopbar('porbolao'); }
+
+let {boloes,registros}=getData();
+const sel=document.getElementById('fBolao'); sel.innerHTML='<option value="">Todos os bolões</option>'+boloes.map(b=>`<option value="${b.id}">${b.modalidade}</option>`).join('');
+function renderPorBolao(){
+  const f=sel.value;
+  const list=f? registros.filter(r=>r.bolao_id===f):registros;
+  const grouped={};
+  list.forEach(r=>{
+    const b=boloes.find(x=>x.id===r.bolao_id); const key=b? b.modalidade:'Sem bolão';
+    if(!grouped[key]) grouped[key]={enviadas:0,vendidas:0,prejuizo:0,regs:[]};
+    grouped[key].enviadas+=r.enviadas||0; grouped[key].vendidas+=r.vendidas||0; grouped[key].prejuizo+=calcPrejuizo(r,b); grouped[key].regs.push(r);
+  });
+  document.getElementById('porBolaoContent').innerHTML=Object.entries(grouped).map(([mod,g])=>{
+    const perc=g.enviadas? Math.round(g.vendidas/g.enviadas*100):0;
+    return `<div class="card" style="margin-bottom:12px"><h3>${mod} - ${g.enviadas} enviadas, ${g.vendidas} vendidas (${perc}%) - Prejuízo ${fmtBRL(g.prejuizo)}</h3><div class="table-wrap"><table><thead><tr><th>Data</th><th>Loja</th><th>Concurso</th><th>Enviadas</th><th>Vendidas</th><th>Prejuízo</th></tr></thead><tbody>${g.regs.map(r=>{const b=boloes.find(x=>x.id===r.bolao_id); return `<tr><td>${r.data}</td><td>${r.loja}</td><td>${r.concurso}</td><td>${r.enviadas}</td><td>${r.vendidas}</td><td>${fmtBRL(calcPrejuizo(r,b))}</td></tr>`}).join('')}</tbody></table></div></div>`;
+  }).join('') || '<div class="card">Nenhum registro</div>';
+}
+function exportPorBolao(){exportCSV(registros,'por-bolao.csv')}
+sel.addEventListener('change',renderPorBolao);
+renderPorBolao();
+
+</script>
+</body>
+</html>

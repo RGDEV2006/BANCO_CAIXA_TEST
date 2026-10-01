@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Banco de Dados - Sua Loteria</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="container">
+<h2 style="margin-bottom:12px;color:#1F4E78">Banco de Dados</h2>
+
+<div class="grid grid-2">
+<div class="card"><h3>🗄️ Conexão Supabase</h3><div class="form-grid" style="margin-top:10px">
+<div id="supaStatus" class="badge" style="width:fit-content">Desconectado</div>
+<label>Supabase URL<input id="supaUrl" class="input" placeholder="https://pwreldwwyrlihlznczng.supabase.co"></label>
+<label>Anon Key<div style="display:flex;gap:6px"><input id="supaKey" class="input" type="password" placeholder="sb_publishable_kvRW9wd-oU81SjnywpHUjw_6rvnVNS7"><button class="btn" onclick="toggleKey()">👁️</button></div></label>
+<div class="toolbar"><button class="btn" onclick="testSupa()">Testar conexão</button><button class="btn btn-primary" onclick="connectSupa()">Conectar</button><button class="btn" onclick="disconnectSupa()">Desconectar</button></div>
+<div id="supaExtra" style="display:none"><div class="small" id="supaRef"></div><div class="toolbar" style="margin-top:8px"><button class="btn" onclick="syncToSupa()">Sincronizar para Supabase</button><button class="btn" onclick="importFromSupa()">Importar do Supabase</button><button class="btn" onclick="showSQL()">Criar tabelas (SQL)</button></div></div>
+<div class="small">Configure as credenciais do seu projeto Supabase para sincronizar os dados na nuvem</div>
+</div></div>
+<div class="card"><h3>Armazenamento local</h3><div id="storageInfo" style="margin-top:10px"></div>
+<div class="toolbar" style="margin-top:10px"><button class="btn" onclick="exportBackup()">Exportar backup (JSON)</button><label class="btn"><input type="file" id="importBackup" accept=".json" style="display:none" onchange="importBackup(event)">Importar backup (JSON)</label><button class="btn" style="background:#fee2e2;color:#991b1b;border-color:#fecaca" onclick="apagarTudo()">Apagar todos os dados</button></div>
+</div>
+</div>
+<div style="height:12px"></div>
+<div class="card"><h3>Prévia dos dados</h3><details style="margin-top:8px"><summary>Tabela Bolões (<span id="countBoloes">0</span>)</summary><div class="table-wrap" style="margin-top:8px"><table id="tblB"><thead><tr><th>Modalidade</th><th>Cotas</th><th>Custo</th><th>Venda</th><th>Status</th></tr></thead><tbody></tbody></table></div></details><details style="margin-top:8px"><summary>Tabela Registros (exibindo 100 de <span id="countRegs">0</span>)</summary><div class="table-wrap" style="margin-top:8px"><table id="tblR"><thead><tr><th>Data</th><th>Loja</th><th>Bolão</th><th>Concurso</th><th>Enviadas</th><th>Vendidas</th></tr></thead><tbody></tbody></table></div></details></div>
+
+<div id="sqlModal" class="modal-backdrop"><div class="modal" style="max-width:720px"><h3>SQL para criar tabelas no Supabase</h3><pre id="sqlContent" style="background:#0f172a;color:#e2e8f0;padding:12px;border-radius:10px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre><div class="toolbar"><button class="btn btn-primary" onclick="copySQL()">Copiar SQL</button><button class="btn" onclick="closeSQL()">Fechar</button></div></div></div>
+
+</div>
+<div id="modalRoot"></div>
+<script src="js/app.js"></script>
+<script>
+const SESSION=requireAuth(); if(SESSION){ renderTopbar('banco'); }
+
+let {boloes,registros,usuarios}=getData();
+function renderStorage(){
+  document.getElementById('countBoloes').textContent=boloes.length;
+  document.getElementById('countRegs').textContent=registros.length;
+  const last=localStorage.getItem('lastSave'); const lastStr=last? new Date(last).toLocaleString('pt-BR'):'nunca';
+  document.getElementById('storageInfo').innerHTML=`<div>Bolões: ${boloes.length}</div><div>Registros: ${registros.length}</div><div>Usuários: ${usuarios.length}</div><div>Último save: ${lastStr}</div><div class="small">Armazenamento local do navegador</div>`;
+  document.querySelector('#tblB tbody').innerHTML=boloes.map(b=>`<tr><td>${b.modalidade}</td><td>${b.total_cotas}</td><td>${fmtBRL(b.custo_cota)}</td><td>${fmtBRL(b.venda_cota)}</td><td>${b.status}</td></tr>`).join('');
+  document.querySelector('#tblR tbody').innerHTML=registros.slice(0,100).map(r=>`<tr><td>${r.data}</td><td>${r.loja}</td><td>${boloes.find(x=>x.id===r.bolao_id)?.modalidade||''}</td><td>${r.concurso}</td><td>${r.enviadas}</td><td>${r.vendidas}</td></tr>`).join('');
+  // load supa config
+  const cfg=loadLS('sua_loteria_supabase_config',null);
+  if(cfg){document.getElementById('supaUrl').value=cfg.url||''; document.getElementById('supaKey').value=cfg.key||''; if(cfg.connected) showConnected(cfg)}
+}
+function toggleKey(){const el=document.getElementById('supaKey'); el.type=el.type==='password'?'text':'password'}
+function showConnected(cfg){
+  document.getElementById('supaStatus').textContent='Conectado'; document.getElementById('supaStatus').className='badge badge-ativo';
+  document.getElementById('supaExtra').style.display='block';
+  try{const ref=new URL(cfg.url).hostname.split('.')[0]; document.getElementById('supaRef').textContent='Project: '+ref}catch{}
+}
+function showDisconnected(){
+  document.getElementById('supaStatus').textContent='Desconectado'; document.getElementById('supaStatus').className='badge badge-encerrado';
+  document.getElementById('supaExtra').style.display='none';
+}
+async function testSupa(){
+  const url=document.getElementById('supaUrl').value.trim(); const key=document.getElementById('supaKey').value.trim();
+  if(!url||!key){toast('Preencha URL e Key');return}
+  try{
+    const res=await fetch(url+'/rest/v1/',{headers:{'apikey':key,'Authorization':'Bearer '+key}});
+    if(res.ok||res.status===404){toast('Conexão OK ✅')} else {toast('Falha: HTTP '+res.status)}
+  }catch(e){toast('Erro: '+e.message)}
+}
+function connectSupa(){
+  const url=document.getElementById('supaUrl').value.trim(); const key=document.getElementById('supaKey').value.trim();
+  if(!url||!key){toast('Preencha URL e Key');return}
+  saveLS('sua_loteria_supabase_config',{url,key,connected:true}); showConnected({url}); toast('Conectado ao Supabase');
+}
+function disconnectSupa(){ saveLS('sua_loteria_supabase_config',{url:document.getElementById('supaUrl').value,key:document.getElementById('supaKey').value,connected:false}); showDisconnected(); toast('Desconectado')}
+function syncToSupa(){ toast('Sincronizando... (simulado)'); setTimeout(()=>toast('Sincronizado: '+registros.length+' registros, '+boloes.length+' bolões'),1200)}
+function importFromSupa(){ toast('Importando... (simulado)'); setTimeout(()=>toast('Importação simulada - configure RLS e tabelas'),1200)}
+const SQL_SCRIPT=`create extension if not exists "pgcrypto";
+create table usuarios (id uuid primary key default gen_random_uuid(), nome text not null, login text unique not null, senha_hash text not null, perfil text not null check (perfil in ('Administrador','Gerente')), status text not null default 'Ativo', permissoes jsonb, ultimo_acesso timestamptz, created_at timestamptz default now());
+create table boloes (id uuid primary key default gen_random_uuid(), modalidade text not null, concurso text, data_sorteio text, premio_estimado numeric, total_cotas int not null, custo_cota numeric not null, venda_cota numeric not null, status text not null, created_at timestamptz default now());
+create table registros (id uuid primary key default gen_random_uuid(), data text, loja text, origem_fornecedor text, bolao_id uuid references boloes(id), concurso text, data_sorteio text, premio_estimado numeric, enviadas int default 0, sobradas int default 0, marketplace int default 0, vendidas int default 0, created_at timestamptz default now());
+alter table usuarios disable row level security; alter table boloes disable row level security; alter table registros disable row level security;`;
+function showSQL(){document.getElementById('sqlContent').textContent=SQL_SCRIPT; document.getElementById('sqlModal').classList.add('open')}
+function closeSQL(){document.getElementById('sqlModal').classList.remove('open')}
+function copySQL(){navigator.clipboard.writeText(SQL_SCRIPT); toast('SQL copiado')}
+function exportBackup(){const data={boloes,registros,usuarios,exportadoEm:new Date().toISOString()}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='backup-sua-loteria.json'; a.click(); URL.revokeObjectURL(url)}
+function importBackup(e){const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=function(ev){try{const d=JSON.parse(ev.target.result); if(d.boloes) saveLS('boloes',d.boloes); if(d.registros) saveLS('registros',d.registros); if(d.usuarios) saveLS('usuarios',d.usuarios); toast('Backup importado'); renderStorage()}catch(err){toast('Erro ao importar: '+err.message)}}; reader.readAsText(file)}
+function apagarTudo(){ if(!confirm('Apagar TODOS os dados?'))return; if(!confirm('Tem certeza? Isso é irreversível'))return; localStorage.clear(); toast('Dados apagados - recarregando'); setTimeout(()=>location.href='login.html',1000)}
+renderStorage();
+
+</script>
+</body>
+</html>
